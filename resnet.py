@@ -222,19 +222,11 @@ class ResNet(nn.Module):
         x = self.bn1(x)
         x2s = self.relu(x)
         x = self.maxpool(x2s)
-        print(x.shape)
-
         x4s = self.layer1(x)
-        print(x4s.shape)
-
         x8s = self.layer2(x4s)
-        print(x8s.shape)
         x16s = self.layer3(x8s)
-        print(x16s.shape)
         x32s = self.layer4(x16s)
         x = x32s
-
-        print(x.shape)
 
         if not self.remove_avg_pool_layer:
             x = self.avgpool(x)
