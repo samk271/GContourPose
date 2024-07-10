@@ -57,7 +57,7 @@ def main(args):
     device = torch.device("cuda:0" if cuda else "cpu")
     print("using {} device".format(device))
 
-    dataset = CustomDataset(os.path.join(os.getcwd(), "data", "set2", "set2"), "bottle_1", True)
+    dataset = CustomDataset(os.path.join(os.getcwd(), "data", "set2", "set2"), args.obj, True)
     data_loader = DataLoader(dataset, batch_size = 1, shuffle=True, num_workers=8)
 
     GContourNet = GContourPose(train = args.train)
@@ -69,7 +69,7 @@ def main(args):
     print(args.train)
     if args.train:
         #Training epochs
-        print("Training for bottle_1")
+        print("Training for {}".format(args.obj))
         for epoch in range(151):
             print("Epoch {}".format(epoch))
             total_loss = 0.0
@@ -77,7 +77,8 @@ def main(args):
             start = time.time()
             for data in data_loader:
                 iter += 1
-                img, contour = [x.to(device) for x in data]
+                img, contour, pose, K = [x.to(device) for x in data]
+                if img == 'signal': continue
                 loss = GContourNet(img,target_contour=contour)
                 loss = loss.to(torch.float32)
                 total_loss += loss
@@ -91,13 +92,13 @@ def main(args):
             print('Time cost:{}'.format(duration))
             print('Epoch {} || Total Loss: {}'.format(epoch, total_loss))
             if epoch % 10 == 0:
-                if not os.path.exists(os.path.join(os.getcwd(), 'trained_models', 'bottle_1')):
-                    os.makedirs(os.path.join(os.getcwd(), 'trained_models', 'bottle_1'))
+                if not os.path.exists(os.path.join(os.getcwd(), 'trained_models', args.obj)):
+                    os.makedirs(os.path.join(os.getcwd(), 'trained_models', args.obj))
                 state = {'net': GContourNet.state_dict(), 'optimizer': optimizer.state_dict(), 'epoch': epoch}
-                torch.save(state, os.path.join('trained_models', 'bottle_1', 'GContourPose_{}.pkl'.format(epoch)))
+                torch.save(state, os.path.join('trained_models', args.obj, 'GContourPose_{}.pkl'.format(epoch)))
     else:
         #Evaluation, load network
-        model_dir = os.path.join(os.getcwd(), "trained_models", "bottle_1")
+        model_dir = os.path.join(os.getcwd(), "trained_models", args.obj)
         print("Load model: {}".format(os.path.join(model_dir, "GContourPose_{}.pkl".format(150))))
         pretrained_model = torch.load(os.path.join(model_dir, "GContourPose_{}.pkl".format(150)))
         try:
@@ -110,8 +111,26 @@ def main(args):
         start = time.time()
         for data in data_loader:
             iter += 1
-            img, contour = [x.to(device) for x in data]
-            
+            img, contour, pose, K = data
+            print(pose)
+            print(K)
+            if img == 'signal': continue
+            output = GContourNet(img)
+
+            fig = plt.figure(figsize=(7,5))
+            fig.add_subplot(2,2,1)
+            plt.imshow(img.permute(0,2,3,1).cpu().numpy()[0])
+            plt.title("rgb")
+
+            fig.add_subplot(2,2, 2)
+            plt.imshow(contour.permute(0,2,3,1).cpu().numpy()[0])
+            plt.title("contour")
+
+            fig.add_subplot(2,2, 3)
+            plt.imshow(output.repeat(1,3,1,1).permute(0,2,3,1).cpu().detach().numpy()[0])
+            plt.title("output")
+
+            plt.show()
             break
 
 
@@ -120,6 +139,7 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--train", type=bool, default=False)
+    parser.add_argument("--obj", type=str, default="bottle_1")
     args = parser.parse_args()
     main(args)
 
