@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import torch
+import cv2
 from PIL import Image
 from torch.utils.data import Dataset
 
@@ -10,6 +11,8 @@ class CustomDataset(Dataset):
         self.root=root
         self.obj_cls=obj_cls
         self.is_train=is_train
+
+        self.element = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
 
     def __len__(self):
         #Better system to be implemented once more scenes are annotated
@@ -30,18 +33,16 @@ class CustomDataset(Dataset):
             contour_img_number = str(10000 + idx)[1:]
             img = np.array(Image.open(os.path.join(path, "data", "rgb", "{}.png".format(rgb_img_number))))
             contour = np.array(Image.open(os.path.join(path, "renders", self.obj_cls, "{}.png".format(contour_img_number))))
-            
+            # contour = cv2.dilate(contour, kernel=self.element)
             #Apply scaling and normalization to pixel values
             img = img / 255.0
             img -= [0.419, 0.427, 0.424]
             img /= [0.184, 0.206, 0.197]
 
             contour = contour / 255
-            contour = np.expand_dims(contour, axis=2)
-
+            print(contour.max())
             img = torch.tensor(img, dtype = torch.float32).permute((2, 0, 1))
             contour = torch.tensor(contour, dtype = torch.int8).permute((2, 0, 1))
-            
             return img, contour
         else:
             path = os.path.join(self.root, "scene3")
@@ -50,6 +51,7 @@ class CustomDataset(Dataset):
             contour_img_number = str(10000 + adj_idx)[1:]
             img = np.array(Image.open(os.path.join(path, "data", "rgb", "{}.png".format(rgb_img_number))))
             contour = np.array(Image.open(os.path.join(path, "renders", self.obj_cls, "{}.png".format(contour_img_number))))
+            # contour = cv2.dilate(contour, kernel=self.element)
 
             #Apply scaling and normalization to pixel values
             img = img / 255.0
@@ -57,8 +59,7 @@ class CustomDataset(Dataset):
             img /= [0.184, 0.206, 0.197]
 
             contour = contour / 255
-
+            print(contour.max())
             img = torch.tensor(img, dtype = torch.float32).permute((2, 0, 1))
             contour = torch.tensor(contour, dtype = torch.int8).permute((2, 0, 1))
-            
             return img, contour

@@ -1,10 +1,12 @@
 import os
+import sys
 import torch
 import numpy as np
 from matplotlib import pyplot as plt
 from network import GContourPose
 from Dataset import CustomDataset
 from torch.utils.data import DataLoader
+from torchvision.utils import save_image
 import argparse
 import time
 import scipy.io
@@ -13,6 +15,13 @@ from torch import nn
 
 
 cuda = torch.cuda.is_available()
+
+def adjust_learning_rate(optimizer, epoch, init_lr):
+    """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
+    lr = init_lr * (0.5 ** (epoch // 20))
+    print("LR:{}".format(lr))
+    for param_group in optimizer.param_groups:
+        param_group["lr"] = lr
 
 @torch.no_grad()
 def get_wd_params(model: nn.Module):
@@ -51,38 +60,66 @@ def main(args):
     dataset = CustomDataset(os.path.join(os.getcwd(), "data", "set2", "set2"), "bottle_1", True)
     data_loader = DataLoader(dataset, batch_size = 1, shuffle=True, num_workers=8)
 
-    GContourNet = GContourPose()
+    GContourNet = GContourPose(train = args.train)
     GContourNet = nn.DataParallel(GContourNet, device_ids=[0])
     GContourNet = GContourNet.to(device)
     wd_params, no_wd_params = get_wd_params(GContourNet)
     optimizer = torch.optim.AdamW([{'params': list(no_wd_params), 'weight_decay': 0}, {'params': list(wd_params)}],
-                                  lr=0.1, weight_decay=0.1)
+                                lr=0.1, weight_decay=0.1)
+    print(args.train)
+    if args.train:
+        #Training epochs
+        print("Training for bottle_1")
+        for epoch in range(151):
+            print("Epoch {}".format(epoch))
+            total_loss = 0.0
+            iter = 0
+            start = time.time()
+            for data in data_loader:
+                iter += 1
+                img, contour = [x.to(device) for x in data]
+                loss = GContourNet(img,target_contour=contour)
+                loss = loss.to(torch.float32)
+                total_loss += loss
+                if iter % 150 == 0:
+                    print(f'Loss:{loss:.6f}')
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+            duration = time.time() - start
+            adjust_learning_rate(optimizer, epoch, 0.1)
+            print('Time cost:{}'.format(duration))
+            print('Epoch {} || Total Loss: {}'.format(epoch, total_loss))
+            if epoch % 10 == 0:
+                if not os.path.exists(os.path.join(os.getcwd(), 'trained_models', 'bottle_1')):
+                    os.makedirs(os.path.join(os.getcwd(), 'trained_models', 'bottle_1'))
+                state = {'net': GContourNet.state_dict(), 'optimizer': optimizer.state_dict(), 'epoch': epoch}
+                torch.save(state, os.path.join('trained_models', 'bottle_1', 'GContourPose_{}.pkl'.format(epoch)))
+    else:
+        #Evaluation, load network
+        model_dir = os.path.join(os.getcwd(), "trained_models", "bottle_1")
+        print("Load model: {}".format(os.path.join(model_dir, "GContourPose_{}.pkl".format(150))))
+        pretrained_model = torch.load(os.path.join(model_dir, "GContourPose_{}.pkl".format(150)))
+        try:
+            GContourNet.load_state_dict(pretrained_model['net'], strict=True)
+            optimizer.load_state_dict(pretrained_model['optimizer'])
+        except KeyError:
+            GContourNet.load_state_dict(pretrained_model, strict=True)
 
-    #Training epochs
-    print("Training for bottle_1")
-    for epoch in range(150):
-        print("Epoch {}".format(epoch))
-        total_loss = 0.0
         iter = 0
         start = time.time()
         for data in data_loader:
             iter += 1
             img, contour = [x.to(device) for x in data]
-            loss = GContourNet(img,target_contour=contour)
-            loss = loss.to(torch.float32)
-            total_loss += loss
-            if iter % 50 == 0:
-                print(f'Loss:{loss:.6f}')
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-        duration = time.time() - start
-        print('Time cost:{}'.format(duration))
-        print('Epoch {} || Total Loss: {}'.format(epoch, total_loss))
+            
+            break
+
+
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+    parser.add_argument("--train", type=bool, default=False)
     args = parser.parse_args()
     main(args)
 

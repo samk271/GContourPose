@@ -8,14 +8,14 @@ class GContourPose(torch.nn.Module):
     def __init__(self,
                  fcdim=256, s16dim=256, s8dim=128, s4dim=64, s2dim=64, raw_dim=64,
                  seg_dim=2, feature_dim=64, heatmap_dim=8, edge_dim=1,
-                 cat=True, dropout=0.1, sigma=100):
+                 cat=True, dropout=0.1, sigma=100, train=True):
         super(GContourPose, self).__init__()
 
         self.sigma = sigma
-        
+        self.train = train
         self.alpha = 0.99
         self.gamma = 2
-        self.cat = cat  # Ture
+        self.cat = cat  # True
         self.dropout = dropout  # 0.1
         self.img_convs = torch.nn.ModuleList()
         self.seg_dim = seg_dim  # 2
@@ -29,6 +29,14 @@ class GContourPose(torch.nn.Module):
                                pretrained=True,
                                output_stride=16,
                                remove_avg_pool_layer=True)
+        
+        # Randomly initialize the 1x1 Conv scoring layer
+        resnet18_8s.fc = nn.Sequential(
+            nn.Conv2d(resnet18_8s.inplanes, fcdim, 3, 1, 1, bias=False),
+            nn.BatchNorm2d(fcdim),
+            nn.ReLU(True)
+        )
+
         self.resnet18_8s = resnet18_8s
 
          # The second encoder
@@ -79,7 +87,6 @@ class GContourPose(torch.nn.Module):
         self.up2storaw = nn.UpsamplingBilinear2d(scale_factor=2)
         
     def forward(self, x, heatmap = None, target_contour = None):
-        print(x.shape)
         x2s, x4s, x8s, x16s, x32s, xfc = self.resnet18_8s(x)
 
         fm2 = self.conv16s(torch.cat([xfc, x16s], 1))
@@ -98,10 +105,11 @@ class GContourPose(torch.nn.Module):
         fm2 = self.conv_edge(fm2)
         pred_contour = fm2
 
-        if self.training:
+        if self.train:
             loss_fn = nn.MSELoss()
             # heatmap_loss = loss_fn(pred_heatmap, heatmap) * 1000
             # contour_loss = self.weighted_cross_entropy_loss(pred_contour, target_contour)
+            target_contour = torch.mean(target_contour, 1, True, dtype=type(0.0))
             contour_loss = self.seg_loss(pred_contour.float(), target_contour.float())
 
             #loss = {}
