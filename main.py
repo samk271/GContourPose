@@ -7,6 +7,7 @@ from network import GContourPose
 from Dataset import CustomDataset
 from torch.utils.data import DataLoader
 from torchvision.utils import save_image
+from torcheval.metrics.functional.classification import binary_recall
 import argparse
 import time
 import scipy.io
@@ -78,7 +79,6 @@ def main(args):
             for data in data_loader:
                 iter += 1
                 img, contour, pose, K = [x.to(device) for x in data]
-                if img == 'signal': continue
                 loss = GContourNet(img,target_contour=contour)
                 loss = loss.to(torch.float32)
                 total_loss += loss
@@ -111,13 +111,18 @@ def main(args):
         start = time.time()
         for data in data_loader:
             iter += 1
-            img, contour, pose, K = data
-            print(pose)
-            print(K)
-            if img == 'signal': continue
+            img, contour, pose, K = [x.to(device) for x in data]
+            # print(pose)
+            # print(K)
             output = GContourNet(img)
 
-            fig = plt.figure(figsize=(7,5))
+            contour = torch.mean(contour, 1, True, dtype=type(0.0))
+            seg_loss = nn.BCEWithLogitsLoss()
+            loss = seg_loss(output.float(), contour.float())
+            if (loss > 0.05): continue
+            print("Loss: {}".format(loss))
+
+            fig = plt.figure(figsize=(10,7))
             fig.add_subplot(2,2,1)
             plt.imshow(img.permute(0,2,3,1).cpu().numpy()[0])
             plt.title("rgb")
@@ -126,12 +131,14 @@ def main(args):
             plt.imshow(contour.permute(0,2,3,1).cpu().numpy()[0])
             plt.title("contour")
 
+            output = torch.mean(output, 1, True, dtype=type(0.0))
+            # m = nn.Sigmoid()
+            # output = m(output)
             fig.add_subplot(2,2, 3)
-            plt.imshow(output.repeat(1,3,1,1).permute(0,2,3,1).cpu().detach().numpy()[0])
+            plt.imshow(output.permute(0,2,3,1).cpu().detach().numpy()[0])
             plt.title("output")
-
             plt.show()
-            break
+
 
 
 
