@@ -1,5 +1,6 @@
 import os
 import sys
+import re
 import torch
 import numpy as np
 from matplotlib import pyplot as plt
@@ -18,7 +19,7 @@ from torch import nn
 cuda = torch.cuda.is_available()
 
 def adjust_learning_rate(optimizer, epoch, init_lr):
-    """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
+    """Sets the learning rate to the initial LR decayed by 10 every 20 epochs"""
     lr = init_lr * (0.5 ** (epoch // 20))
     print("LR:{}".format(lr))
     for param_group in optimizer.param_groups:
@@ -54,11 +55,21 @@ def get_wd_params(model: nn.Module):
     assert len(wd_params) + len(no_wd_params) == len(all_params), "Sanity check failed."
     return wd_params, no_wd_params
 
+def benchmark(output, gt_contour):
+    output_clone = output.clone()
+    output_clone[output > 0] = 1
+    output_clone[output <= 0] = 0
+    intersection =torch.sum(output_clone*gt_contour)
+    union = torch.sum(torch.maximum(output_clone, gt_contour))
+    if (union.item() == 0):
+        return 0.0, 0, 0
+    return (intersection/union).item(), intersection.item(), union.item()
+
 def main(args):
-    device = torch.device("cuda:0" if cuda else "cpu")
+    device = torch.device("cuda" if cuda else "cpu")
     print("using {} device".format(device))
 
-    dataset = CustomDataset(os.path.join(os.getcwd(), "data", "set2", "set2"), args.obj, True)
+    dataset = CustomDataset(os.path.join(os.getcwd(), "data", "set2", "set2"), args.obj, is_train=args.train)
     data_loader = DataLoader(dataset, batch_size = 1, shuffle=True, num_workers=8)
 
     GContourNet = GContourPose(train = args.train)
@@ -67,30 +78,60 @@ def main(args):
     wd_params, no_wd_params = get_wd_params(GContourNet)
     optimizer = torch.optim.AdamW([{'params': list(no_wd_params), 'weight_decay': 0}, {'params': list(wd_params)}],
                                 lr=0.1, weight_decay=0.1)
-    print(args.train)
+    
+    print("Training: ", args.train)
     if args.train:
+        resume = 0
+        torch.autograd.set_detect_anomaly(True)
+        #Resume Training
+        if args.resume:
+            model_dir = os.path.join(os.getcwd(), "trained_models", args.obj)
+            models = os.listdir(model_dir)
+            for model in models:
+                model_epoch = int(re.findall(r'\d+', model)[0])
+                if (model_epoch > resume): resume = model_epoch
+
+            print("Load model: {}".format(os.path.join(model_dir, "GContourPose_{}.pkl".format(resume))))
+            pretrained_model = torch.load(os.path.join(model_dir, "GContourPose_{}.pkl".format(resume)))
+            try:
+                GContourNet.load_state_dict(pretrained_model['net'], strict=True)
+                optimizer.load_state_dict(pretrained_model['optimizer'])
+            except KeyError:
+                GContourNet.load_state_dict(pretrained_model, strict=True)
+            print("Resuming Training at epoch {}".format(resume))
+
+        f = open("{}_training_log.txt".format(args.obj), "a")
         #Training epochs
         print("Training for {}".format(args.obj))
-        for epoch in range(151):
+        f.write("Training for {}\n".format(args.obj))
+        for epoch in range(resume, resume + args.epochs + 1):
             print("Epoch {}".format(epoch))
+            f.write("Epoch {}\n".format(epoch))
             total_loss = 0.0
             iter = 0
+            overlap = []
             start = time.time()
             for data in data_loader:
                 iter += 1
-                img, contour, pose, K = [x.to(device) for x in data]
-                loss = GContourNet(img,target_contour=contour)
+                img, contour, pose, K, frame = [x.to(device) for x in data]
+                loss, pred_contour = GContourNet(img,target_contour=contour)
                 loss = loss.to(torch.float32)
                 total_loss += loss
-                if iter % 150 == 0:
-                    print(f'Loss:{loss:.6f}')
+                bench = benchmark(pred_contour, contour)
+                overlap.append(bench[0])
+                if (loss > 0.1 and epoch > 200):
+                        f.write(f'Loss:{loss:.6f}\n')
+                        f.write("\tFrame: {}\n".format(frame.tolist()))
+                        f.write("\tOverlap: {}\n".format(bench))
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
             duration = time.time() - start
             adjust_learning_rate(optimizer, epoch, 0.1)
-            print('Time cost:{}'.format(duration))
-            print('Epoch {} || Total Loss: {}'.format(epoch, total_loss))
+            #print('Time cost:{}'.format(duration))
+            #print('Epoch {} || Average Loss: {} || Total Loss: {} || Average Overlap: {}'.format(epoch, total_loss/iter, total_loss, sum(overlap)/len(overlap)))
+            f.write('Time cost:{}\n'.format(duration))
+            f.write('Epoch {} || Average Loss: {} || Total Loss: {} || Average Overlap: {}\n'.format(epoch, total_loss/iter, total_loss, sum(overlap)/len(overlap)))
             if epoch % 10 == 0:
                 if not os.path.exists(os.path.join(os.getcwd(), 'trained_models', args.obj)):
                     os.makedirs(os.path.join(os.getcwd(), 'trained_models', args.obj))
@@ -99,8 +140,8 @@ def main(args):
     else:
         #Evaluation, load network
         model_dir = os.path.join(os.getcwd(), "trained_models", args.obj)
-        print("Load model: {}".format(os.path.join(model_dir, "GContourPose_{}.pkl".format(150))))
-        pretrained_model = torch.load(os.path.join(model_dir, "GContourPose_{}.pkl".format(150)))
+        print("Load model: {}".format(os.path.join(model_dir, "GContourPose_{}.pkl".format(args.epochs))))
+        pretrained_model = torch.load(os.path.join(model_dir, "GContourPose_{}.pkl".format(args.epochs)))
         try:
             GContourNet.load_state_dict(pretrained_model['net'], strict=True)
             optimizer.load_state_dict(pretrained_model['optimizer'])
@@ -111,32 +152,46 @@ def main(args):
         start = time.time()
         for data in data_loader:
             iter += 1
-            img, contour, pose, K = [x.to(device) for x in data]
+            img, contour, pose, K, frame = [x.to(device) for x in data]
             # print(pose)
             # print(K)
             output = GContourNet(img)
 
             contour = torch.mean(contour, 1, True, dtype=type(0.0))
+
+            bench = benchmark(output, contour)
+            print("Bench: {}".format(bench))
+
             seg_loss = nn.BCEWithLogitsLoss()
             loss = seg_loss(output.float(), contour.float())
-            if (loss > 0.05): continue
+            #if (loss > 0.05): continue
             print("Loss: {}".format(loss))
 
-            fig = plt.figure(figsize=(10,7))
-            fig.add_subplot(2,2,1)
+            fig = plt.figure(figsize=(15,7))
+            fig.add_subplot(2,3,1)
             plt.imshow(img.permute(0,2,3,1).cpu().numpy()[0])
-            plt.title("rgb")
+            plt.title("rgb, {}".format(frame.tolist()))
 
-            fig.add_subplot(2,2, 2)
+            fig.add_subplot(2,3, 2)
             plt.imshow(contour.permute(0,2,3,1).cpu().numpy()[0])
             plt.title("contour")
 
             output = torch.mean(output, 1, True, dtype=type(0.0))
             # m = nn.Sigmoid()
             # output = m(output)
-            fig.add_subplot(2,2, 3)
+            fig.add_subplot(2,3, 3)
             plt.imshow(output.permute(0,2,3,1).cpu().detach().numpy()[0])
-            plt.title("output")
+            plt.title("output: {}".format(loss))
+
+            # heatmap = torch.mean(heatmap, 1, True, dtype=type(0.0))
+            # fig.add_subplot(2,3, 4)
+            # plt.imshow(heatmap.permute(0,2,3,1).cpu().detach().numpy()[0])
+            # plt.title("heatmap")
+
+            fig.add_subplot(2,3, 5)
+            overlap = torch.stack([output.cpu()[0][0], torch.zeros(480, 640), contour.cpu()[0][0]])
+            plt.imshow(overlap.permute(1,2,0).detach().numpy())
+            plt.title("overlap: {}".format(bench))
             plt.show()
 
 
@@ -147,6 +202,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--train", type=bool, default=False)
     parser.add_argument("--obj", type=str, default="bottle_1")
+    parser.add_argument("--epochs", type=int, default=250)
+    parser.add_argument("--resume", type=bool, default=False)
     args = parser.parse_args()
     main(args)
 

@@ -115,6 +115,6 @@ class GContourPose(torch.nn.Module):
             #loss = {}
             #loss["heatmap_loss"] = heatmap_loss
             #loss["contour_loss"] = contour_loss
-            return contour_loss
+            return contour_loss, pred_contour
         else:
             return pred_contour #,pred_heatmap
