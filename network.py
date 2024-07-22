@@ -87,8 +87,28 @@ class GContourPose(torch.nn.Module):
         self.up2storaw = nn.UpsamplingBilinear2d(scale_factor=2)
         
     def forward(self, x, heatmap = None, target_contour = None):
+        #Resnet Encoder
         x2s, x4s, x8s, x16s, x32s, xfc = self.resnet18_8s(x)
 
+        #Heatmap Decoder
+        fm1 = self.conv16s(torch.cat([xfc, x16s], 1))
+        fm1 = self.up16sto8s(fm1)
+        fm1 = self.conv8s(torch.cat([fm1, x8s], 1))
+        fm1 = self.up8sto4s(fm1)
+        if fm1.shape[2] == 136:
+            fm1 = nn.functional.interpolate(fm1, (135, 180), mode='bilinear', align_corners=False)
+
+        fm1 = self.conv4s(torch.cat([fm1, x4s], 1))
+        fm1 = self.up4sto2s(fm1)
+
+        fm1 = self.conv2s(torch.cat([fm1, x2s], 1))
+        fm1 = self.up2storaw(fm1)
+        fm1 = self.conv_raw(torch.cat([fm1, x], 1))
+        fm1 = self.conv_heatmap(fm1)
+
+        pred_heatmap = fm1
+
+        #Contour decoder
         fm2 = self.conv16s(torch.cat([xfc, x16s], 1))
         fm2 = self.up16sto8s(fm2)
         fm2 = self.conv8s(torch.cat([fm2, x8s], 1))
@@ -107,14 +127,14 @@ class GContourPose(torch.nn.Module):
 
         if self.train:
             loss_fn = nn.MSELoss()
-            # heatmap_loss = loss_fn(pred_heatmap, heatmap) * 1000
+            heatmap_loss = loss_fn(pred_heatmap, heatmap) * 1000
             # contour_loss = self.weighted_cross_entropy_loss(pred_contour, target_contour)
             target_contour = torch.mean(target_contour, 1, True, dtype=type(0.0))
             contour_loss = self.seg_loss(pred_contour.float(), target_contour.float())
 
-            #loss = {}
-            #loss["heatmap_loss"] = heatmap_loss
-            #loss["contour_loss"] = contour_loss
-            return contour_loss, pred_contour
+            loss = {}
+            loss["heatmap_loss"] = heatmap_loss
+            loss["contour_loss"] = contour_loss
+            return loss, pred_contour
         else:
-            return pred_contour #,pred_heatmap
+            return pred_contour,pred_heatmap

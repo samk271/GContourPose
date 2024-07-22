@@ -19,6 +19,11 @@ class CustomDataset(Dataset):
         #Load keypoints
         keypoint_path = os.path.join(os.getcwd(), "data", "model", self.obj_cls, "{}_keypoints.txt".format(self.obj_cls))
         self.keypoints = np.loadtxt(keypoint_path)
+        #Sample 8 random keypoints
+        print(self.keypoints.shape)
+        indicies= np.random.randint(self.keypoints.shape[0], size=8)
+        self.keypoints = self.keypoints[indicies, :]
+        print(self.keypoints.shape)
 
         # Load objects.csv as a dictonary, find id for obj_cls
         with open(os.path.join('data','model','objects.csv')) as obj_labels:
@@ -90,7 +95,7 @@ class CustomDataset(Dataset):
                 gaussian_map[i] = cv2.GaussianBlur(gaussian_map[i], sigma, 0)
                 am = np.amax(gaussian_map[i])
                 gaussian_map[i] /= am / 255
-        return gaussian_map / 255
+        return torch.tensor(gaussian_map / 255, dtype=torch.float32)
 
     def __len__(self):
         return len(self.frame_list)
@@ -118,9 +123,9 @@ class CustomDataset(Dataset):
         contour = contour / 255
 
         #Generate heatmap
-        # keypoints_2d = self.project(self.keypoints, K.numpy(), pose.numpy())
-        # heatmap = self.generate_heatmap(keypoints_2d)
+        keypoints_2d = self.project(self.keypoints, K.numpy(), pose.numpy())
+        heatmap = self.generate_heatmap(keypoints_2d)
 
         frame = torch.tensor([int(rgb_frame[0][-1]), int(rgb_frame[1])], dtype=torch.int32)
         
-        return img, contour, pose, K, frame ##ADD HEATMAP BACK IN LATER
+        return img, contour, heatmap, pose, K, frame
