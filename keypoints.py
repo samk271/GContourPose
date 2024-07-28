@@ -3,6 +3,7 @@ import csv
 import torch
 import cv2
 import argparse
+import tqdm
 import open3d as o3d
 import numpy as np
 import scipy.io as sio
@@ -43,7 +44,7 @@ def generate_heatmap(c, img_height=480, img_width=640, sigma=(25, 25)):
     return gaussian_map / 255
 
 
-def generate_keypoints(points):
+def generate_keypoints():
     models = os.listdir(os.path.join(os.getcwd(), "data", "model"))
     for obj in models:
         if obj in ["create_keypoints.py","object_label.json","objects.csv","trans_models_keypoint.blend"]:
@@ -56,14 +57,14 @@ def generate_keypoints(points):
         pcd = o3d.io.read_point_cloud(pc_path)
         print(pcd)
         points = []
-        voxel_s = 0.1
-        while (len(points) < 20):
+        voxel_s = 1
+        while (len(points) < 8):
             downpcd = pcd.voxel_down_sample(voxel_size=voxel_s)
-            print(downpcd)
             points = np.asarray(downpcd.points)
-            voxel_s *= 0.9
+            voxel_s *= 0.99
         for point in points.tolist():
             f.write("{:.4f}\t{:.4f}\t{:.4f}\n".format(point[0], point[1], point[2]))
+        print(downpcd)
 
 def count_contour_points(rootpath, obj, points):
     dataset = CustomDataset(rootpath, obj, is_train=False)
@@ -73,8 +74,8 @@ def count_contour_points(rootpath, obj, points):
 
     contour_counter = np.zeros((points.shape[0]))
 
-    for data in data_loader:
-        _, gt_contour, pose, K, frame = data
+    for data in tqdm.tqdm(data_loader):
+        _, gt_contour, heatmap, pose, K, frame = data
 
         gt_contour = gt_contour.permute(0, 2, 3, 1).numpy()[0]
         pose = pose.numpy()[0]
@@ -85,7 +86,16 @@ def count_contour_points(rootpath, obj, points):
         # print(K)
         # print(frame)
 
+        full_model = np.zeros((480,640,3))
         points_2d = project(points, K, pose)
+        
+        for point in range(len(points_2d)):
+            x = int(points_2d[point][0])
+            y = int(points_2d[point][1])
+            if (x >= 640) or (x <= 0) or (y >= 480) or (y <= 0):
+                continue
+            full_model[y][x] = [1,1,1]
+        canny = cv2.Canny(np.uint8(full_model), 0, 1)
 
         # print(points_2d.shape)
 
@@ -96,15 +106,15 @@ def count_contour_points(rootpath, obj, points):
             if (x >= 640) or (x <= 0) or (y >= 480) or (y <= 0):
                 continue
 
-            if (gt_contour[y][x][0] != 0):
+            if (canny[y][x] != 0):
                 contour_counter[point] += 1
                 #print(point, contour_counter[point])
                 #img[y][x] = [1,1,1]
 
     return contour_counter
 
-def main(args):
-    obj = "water_cup_12"
+def corresponding_contour_mapper():
+    obj = "bottle_1"
     cuda = torch.cuda.is_available()
     device = torch.device("cuda:0" if cuda else "cpu")
     pc_path = os.path.join(os.getcwd(), "data", "model", obj, "{}.ply".format(obj))
@@ -114,7 +124,7 @@ def main(args):
     #Using scene 3 image 003507
     rootpath = os.path.join(os.getcwd(), "data", "set2", "set2")
     metadata = sio.loadmat(os.path.join(rootpath, "scene3", "metadata.mat"))
-    spec_image_metadata = metadata["003507"]
+    spec_image_metadata = metadata["000000"]
 
     element = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
     gt_contour = np.asarray(Image.open(os.path.join(rootpath, "scene3", "renders", obj, "3508.png")))
@@ -148,57 +158,77 @@ def main(args):
 
     print(contour_counter.shape)
 
-    threshold = np.average(contour_counter)
+    cf = open("{}_3D_contour.txt".format(obj), "w")
+
+    for i, score in enumerate(contour_counter):
+        if score > 100:
+            cf.write("{:.4f}\t{:.4f}\t{:.4f}\n".format(points[i][0], points[i][1], points[i][2]))
+
+    threshold = 90
     max_threshold = threshold
     min_loss = 100
-    while (threshold < np.max(contour_counter)):
-        img = np.zeros((480,640,1))
-        print(threshold)
-        for point in range(len(contour_counter)):
-            if contour_counter[point] > threshold:
-                x = int(points_2d[point][0])
-                y = int(points_2d[point][1])
-                value = contour_counter[point]
-
-                img[y][x] = value
-
-        full_model = np.zeros((480,640,3))
-        points_2d = project(points, K, pose)
-        
-        for point in range(len(points_2d)):
+    img = np.zeros((480,640,1))
+    print(threshold)
+    for point in range(len(contour_counter)):
+        if contour_counter[point] > threshold:
             x = int(points_2d[point][0])
             y = int(points_2d[point][1])
-            full_model[y][x] = [1,1,1]
+            value = contour_counter[point]
 
-        #CODE TO SHOW STUFF AND DO CANNY EDGE DETECTION
-        canny = cv2.Canny(np.uint8(full_model), 0, 1)
+            img[y][x] = value
 
-        combined = canny + np.squeeze(img)
+    full_model = np.zeros((480,640,3))
+    points_2d = project(points, K, pose)
+    
+    for point in range(len(points_2d)):
+        x = int(points_2d[point][0])
+        y = int(points_2d[point][1])
+        full_model[y][x] = [1,1,1]
 
-        tensor_contour = torch.tensor(gt_contour).permute(2, 0, 1)
-        tensor_combined = torch.tensor(combined)
-        m = nn.Sigmoid()
-        tensor_combined = m(tensor_combined)
+    #CODE TO SHOW STUFF AND DO CANNY EDGE DETECTION
+    canny = cv2.Canny(np.uint8(full_model), 0, 1)
 
-        seg_loss = nn.BCEWithLogitsLoss()
-        target_contour = torch.squeeze(torch.mean(tensor_contour, 0, True, dtype=type(0.0)))
-        contour_loss = seg_loss(tensor_combined.float(), target_contour.float())
+    combined = canny + np.squeeze(img)
 
-        fig = plt.figure(figsize=(15,5))
-        fig.add_subplot(1,4, 1)
-        plt.imshow(img)
+    tensor_contour = torch.tensor(gt_contour).permute(2, 0, 1)
+    tensor_combined = torch.tensor(combined)
+    m = nn.Sigmoid()
+    tensor_combined = m(tensor_combined)
 
-        fig.add_subplot(1,4, 2)
-        plt.imshow(gt_contour)
+    seg_loss = nn.BCEWithLogitsLoss()
+    target_contour = torch.squeeze(torch.mean(tensor_contour, 0, True, dtype=type(0.0)))
+    contour_loss = seg_loss(tensor_combined.float(), target_contour.float())
 
-        fig.add_subplot(1,4, 3)
-        plt.imshow(full_model)
+    fig = plt.figure(figsize=(15,5))
+    fig.add_subplot(1,4, 1)
+    plt.imshow(img)
 
-        fig.add_subplot(1,4, 4)
-        plt.imshow(combined)
-        plt.title("{}".format(contour_loss))
-        plt.show()
-        threshold *= 1.1
+    fig.add_subplot(1,4, 2)
+    plt.imshow(gt_contour)
+
+    fig.add_subplot(1,4, 3)
+    plt.imshow(full_model)
+
+    fig.add_subplot(1,4, 4)
+    plt.imshow(combined)
+    plt.title("{}".format(contour_loss))
+    plt.show()
+
+def find_diameter(obj):
+    #Strategy for calculating the diameter of the model:
+    #   Take keypoints and find the furthest distance between all points
+    diameter = 0
+    keypoints = np.loadtxt(os.path.join(os.getcwd(), "data", "model", obj, "{}_keypoints.txt".format(obj)))
+
+    for point in keypoints:
+        for point2 in keypoints:
+            dist = np.linalg.norm(point-point2)
+            if (dist > diameter):
+                diameter = dist
+    print(diameter)
+
+def main(args):
+    find_diameter(obj = "bottle_1")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

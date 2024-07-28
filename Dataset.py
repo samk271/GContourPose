@@ -19,14 +19,11 @@ class CustomDataset(Dataset):
         #Load keypoints
         keypoint_path = os.path.join(os.getcwd(), "data", "model", self.obj_cls, "{}_keypoints.txt".format(self.obj_cls))
         self.keypoints = np.loadtxt(keypoint_path)
-        #Sample 8 random keypoints
-        print(self.keypoints.shape)
-        indicies= np.random.randint(self.keypoints.shape[0], size=8)
-        self.keypoints = self.keypoints[indicies, :]
-        print(self.keypoints.shape)
+        #Sample 8 keypoints
+        self.keypoints = self.keypoints[:8, :]
 
         # Load objects.csv as a dictonary, find id for obj_cls
-        with open(os.path.join('data','model','objects.csv')) as obj_labels:
+        with open(os.path.join(os.getcwd(), 'data','model','objects.csv')) as obj_labels:
             reader = csv.reader(obj_labels)
             object_dict = {rows[1]:rows[0] for rows in reader}
         
@@ -121,6 +118,7 @@ class CustomDataset(Dataset):
         contour = torch.tensor(contour, dtype = torch.float32).permute((2, 0, 1))
         img = img / 255
         contour = contour / 255
+
 
         #Generate heatmap
         keypoints_2d = self.project(self.keypoints, K.numpy(), pose.numpy())
