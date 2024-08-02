@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader
 from eval import evaluator
 import argparse
 import time
+import cv2
 from torch import nn
 
 
@@ -66,7 +67,7 @@ def main(args):
     device = torch.device("cuda" if cuda else "cpu")
     print("using {} device".format(device))
 
-    dataset = CustomDataset(os.path.join(os.getcwd(), "data", "set2", "set2"), args.obj, is_train=args.train)
+    dataset = CustomDataset(os.path.join(os.getcwd(), "data", "set2", "set2"), args.obj, is_train=args.train, blender_contour=args.blender)
     data_loader = DataLoader(dataset, batch_size = 1, shuffle=True, num_workers=8)
 
     GContourNet = GContourPose(train = args.train)
@@ -153,64 +154,105 @@ def main(args):
             GContourNet.load_state_dict(pretrained_model, strict=True)
 
 
+        
+        
         pose_evaluator = evaluator(args, model=GContourNet, test_loader=data_loader, device=device)
-        pose_evaluator.evaluate()
+        # pose_evaluator.evaluate()
 
 
-        # iter = 0
-        # start = time.time()
-        # for data in data_loader:
-        #     iter += 1
-        #     img, contour, heatmap, pose, K, frame = [x.to(device) for x in data]
-        #     # print(pose)
-        #     # print(K)
-        #     pred_contour, pred_heatmap = GContourNet(img)
+        iter = 0
+        start = time.time()
+        for data in data_loader:
+            iter += 1
+            img, contour, heatmap, pose, K, frame = [x.to(device) for x in data]
+            # print(pose)
+            # print(K)
+            pred_contour, pred_heatmap = GContourNet(img)
 
-        #     contour = torch.mean(contour, 1, True, dtype=type(0.0))
+            keypoints_2d, predict_2d = pose_evaluator.map_2_points(heatmap, pred_heatmap)
 
-        #     bench = benchmark(pred_contour, contour)
-        #     print("Bench: {}".format(bench))
+            pred_contour_mod = torch.squeeze(pred_contour).detach().cpu().numpy()
 
-        #     seg_loss = nn.BCEWithLogitsLoss()
-        #     print(pred_contour.shape, contour.shape)
+            pred_contour_mod[pred_contour_mod >= 0] = 1
+            pred_contour_mod[pred_contour_mod < 0] = 0
 
-        #     loss = seg_loss(pred_contour.float(), contour.float())
-        #     #if (loss > 0.05): continue
-        #     print("Loss: {}".format(loss))
+            pred_pose = pose_evaluator.PECP(dataset.keypoints, torch.squeeze(predict_2d).detach().cpu().numpy(), torch.squeeze(K).detach().cpu().numpy(), pred_contour_mod, pose_evaluator.list_all)
 
-        #     fig = plt.figure(figsize=(15,7))
-        #     fig.add_subplot(2,3,1)
-        #     plt.imshow(img.permute(0,2,3,1).cpu().numpy()[0])
-        #     plt.title("rgb, {}".format(frame.tolist()))
+            full_model = np.zeros((480,640))
+            points_2d = dataset.project(dataset.points, torch.squeeze(K).detach().cpu().numpy(), pred_pose)
+            
+            for point in range(len(points_2d)):
+                x = int(points_2d[point][0])
+                y = int(points_2d[point][1])
+                if (x >= 640) or (x <= 0) or (y >= 480) or (y <= 0):
+                    continue
+                full_model[y][x] = 1
 
-        #     fig.add_subplot(2,3, 2)
-        #     plt.imshow(contour.permute(0,2,3,1).cpu().numpy()[0])
-        #     plt.title("contour")
+            canny = cv2.Canny(np.uint8(full_model), 0, 1)
 
-        #     pred_contour = torch.mean(pred_contour, 1, True, dtype=type(0.0))
-        #     # m = nn.Sigmoid()
-        #     # output = m(output)
-        #     fig.add_subplot(2,3, 3)
-        #     plt.imshow(pred_contour.permute(0,2,3,1).cpu().detach().numpy()[0])
-        #     plt.title("pred_contour: {}".format(loss))
+            projection = np.zeros((480,640))
+            contour_points_2d = dataset.project(dataset.valid_3d, torch.squeeze(K).detach().cpu().numpy(), pred_pose)
+            for point in range(len(dataset.valid_3d)):
+                x = int(contour_points_2d[point][0])
+                y = int(contour_points_2d[point][1])
+                if (x >= 640) or (x <= 0) or (y >= 480) or (y <= 0):
+                    continue
+                projection[y][x] = 255
 
-        #     heatmap = torch.mean(heatmap, 1, True, dtype=type(0.0))
-        #     fig.add_subplot(2,3, 4)
-        #     plt.imshow(heatmap.permute(0,2,3,1).cpu().detach().numpy()[0])
-        #     plt.title("heatmap")
+            combined = torch.tensor(cv2.dilate(canny + np.squeeze(projection), kernel=dataset.element), dtype=torch.float32)
+            combined = torch.stack([torch.zeros((480,640)), combined.cpu(), torch.zeros((480,640))])
+            combined = np.transpose(np.add(img.cpu().numpy()[0], combined),(1,2,0))
+            
+            combined[combined > 255] = 255
 
-        #     pred_heatmap = torch.mean(pred_heatmap, 1, True, dtype=type(0.0))
-        #     fig.add_subplot(2,3, 5)
-        #     plt.imshow(pred_heatmap.permute(0,2,3,1).cpu().detach().numpy()[0])
-        #     plt.title("pred_heatmap")
+            contour = torch.mean(contour, 1, True, dtype=type(0.0))
 
-        #     fig.add_subplot(2,3, 6)
-        #     overlap = torch.stack([pred_contour.cpu()[0][0], torch.zeros(480, 640), contour.cpu()[0][0]])
-        #     plt.imshow(overlap.permute(1,2,0).detach().numpy())
-        #     plt.title("overlap: {}".format(bench))
-        #     plt.show()
+            bench = benchmark(pred_contour, contour)
+            print("Bench: {}".format(bench))
 
-        #     if (iter == 15): break
+            seg_loss = nn.BCEWithLogitsLoss()
+            print(pred_contour.shape, contour.shape)
+
+            loss = seg_loss(pred_contour.float(), contour.float())
+            #if (loss > 0.05): continue
+            print("Loss: {}".format(loss))
+
+            fig = plt.figure(figsize=(15,7))
+            fig.add_subplot(2,3,1)
+            plt.imshow(img.permute(0,2,3,1).cpu().numpy()[0])
+            plt.title("rgb, {}".format(frame.tolist()))
+
+            fig.add_subplot(2,3, 2)
+            plt.imshow(contour.permute(0,2,3,1).cpu().numpy()[0])
+            plt.title("contour")
+
+            pred_contour = torch.mean(pred_contour, 1, True, dtype=type(0.0))
+
+            # m = nn.Sigmoid()
+            # output = m(output)
+            # fig.add_subplot(2,3, 3)
+            # plt.imshow(pred_contour.permute(0,2,3,1).cpu().detach().numpy()[0])
+            # plt.title("pred_contour: {}".format(loss))
+            fig.add_subplot(2,3, 3)
+            plt.imshow(combined)
+
+            heatmap = torch.mean(heatmap, 1, True, dtype=type(0.0))
+            fig.add_subplot(2,3, 4)
+            plt.imshow(heatmap.permute(0,2,3,1).cpu().detach().numpy()[0])
+            plt.title("heatmap")
+
+            pred_heatmap = torch.mean(pred_heatmap, 1, True, dtype=type(0.0))
+            fig.add_subplot(2,3, 5)
+            plt.imshow(pred_heatmap.permute(0,2,3,1).cpu().detach().numpy()[0])
+            plt.title("pred_heatmap")
+
+            fig.add_subplot(2,3, 6)
+            overlap = torch.stack([pred_contour.cpu()[0][0], torch.zeros(480, 640), contour.cpu()[0][0]])
+            plt.imshow(overlap.permute(1,2,0).detach().numpy())
+            plt.title("overlap: {}".format(bench))
+            plt.show()
+
+            if (iter == 5): break
         
 
 
@@ -223,6 +265,7 @@ if __name__ == '__main__':
     parser.add_argument("--obj", type=str, default="bottle_1")
     parser.add_argument("--epochs", type=int, default=250)
     parser.add_argument("--resume", type=bool, default=False)
+    parser.add_argument("--blender", type=bool, default=False)
     args = parser.parse_args()
     main(args)
 

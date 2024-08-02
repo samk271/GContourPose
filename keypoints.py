@@ -67,7 +67,7 @@ def generate_keypoints():
         print(downpcd)
 
 def count_contour_points(rootpath, obj, points):
-    dataset = CustomDataset(rootpath, obj, is_train=False)
+    dataset = CustomDataset(rootpath, obj, is_train=False, blender_contour=True)
     data_loader = DataLoader(dataset, batch_size = 1, shuffle=True, num_workers=8)
 
     print(points.shape)
@@ -114,7 +114,7 @@ def count_contour_points(rootpath, obj, points):
     return contour_counter
 
 def corresponding_contour_mapper():
-    obj = "bottle_1"
+    obj = "bottle_4"
     cuda = torch.cuda.is_available()
     device = torch.device("cuda:0" if cuda else "cpu")
     pc_path = os.path.join(os.getcwd(), "data", "model", obj, "{}.ply".format(obj))
@@ -228,7 +228,8 @@ def find_diameter(obj):
     print(diameter)
 
 def main(args):
-    find_diameter(obj = "bottle_1")
+    corresponding_contour_mapper()
+    find_diameter(obj = "bottle_4")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

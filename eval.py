@@ -14,15 +14,21 @@ import math
 cuda = torch.cuda.is_available()
 
 class evaluator:
-    def __init__(self, args, model, test_loader, device):
+    def __init__(self, args, model, test_loader, device, iterations=400):
         self.args = args
         self.model = model
+
+        self.iterations = iterations
 
         pc_path = os.path.join(os.getcwd(), "data", "model", args.obj, "{}.ply".format(args.obj))
         pcd = o3d.io.read_point_cloud(pc_path)
         self.points = np.asarray(pcd.points)
 
         self.keypoints = np.loadtxt(os.path.join(os.getcwd(), "data", "model", args.obj, "{}_keypoints.txt".format(args.obj)))
+        #Sample 8 keypoints
+        if (self.keypoints.shape[0] > 8):
+            self.keypoints = self.keypoints[:8, :]
+        
         self.device = device
         self.data_loader = test_loader
         self.valid_3d = np.loadtxt(os.path.join(os.getcwd(), "data", "model", args.obj, "{}_3D_contour.txt".format(args.obj)))
@@ -63,36 +69,6 @@ class evaluator:
                     img, contour, heatmap, pose, K, frame = [x.to(self.device) for x in data]
                 else:
                     img, contour, heatmap, pose, K, frame = data
-
-                # con_K = torch.squeeze(K).detach().cpu().numpy()
-                # con_pose = torch.squeeze(pose).detach().cpu().numpy()
-
-                # full_model = np.zeros((480,640,3))
-                # points_2d = self.project(self.points, con_K, con_pose)
-                
-                # for point in range(len(points_2d)):
-                #     x = int(points_2d[point][0])
-                #     y = int(points_2d[point][1])
-                #     if (x >= 640) or (x <= 0) or (y >= 480) or (y <= 0):
-                #         continue
-                #     full_model[y][x] = [1,1,1]
-
-                # canny = cv2.Canny(np.uint8(full_model), 0, 1)
-
-                # img = np.zeros((480,640))
-                # contour_points_2d = self.project(self.valid_3d, con_K, con_pose)
-                # for point in range(len(self.valid_3d)):
-                #     x = int(contour_points_2d[point][0])
-                #     y = int(contour_points_2d[point][1])
-                #     if (x >= 640) or (x <= 0) or (y >= 480) or (y <= 0):
-                #         continue
-                #     img[y][x] = 1
-
-                # combined = torch.tensor(cv2.dilate(canny + np.squeeze(img), kernel=self.element), dtype=torch.float32)
-                # combined = torch.stack([combined.cpu(), combined.cpu(), combined.cpu()])
-
-                # pred_heatmap = heatmap
-                # pred_contour = contour
                 pred_contour, pred_heatmap = self.model(img)
                 keypoints_2d, predict_2d = self.map_2_points(heatmap, pred_heatmap)
                 #self.calculate_metric(keypoints_2d, predict_2d, K)
@@ -111,6 +87,35 @@ class evaluator:
             print("translation error:{} mm".format((x ** 2 + y ** 2 + z ** 2) ** 0.5))
             print('alpha error:{} °, beta error:{} °, gamaa error:{} °'.format(alpha, beta, gamma))
             print("rotation error:{} mm".format((alpha ** 2 + beta ** 2 + gamma ** 2) ** 0.5))
+
+    def evaluate_RANSAC(self):
+        #self.model.eval()
+
+        with torch.no_grad():
+            for data in tqdm.tqdm(self.data_loader, leave=False, desc="val"):
+                if cuda:
+                    img, contour, heatmap, pose, K, frame = [x.to(self.device) for x in data]
+                else:
+                    img, contour, heatmap, pose, K, frame = data
+                pred_contour, pred_heatmap = self.model(img)
+                keypoints_2d, predict_2d = self.map_2_points(heatmap, pred_heatmap)
+                #self.calculate_metric(keypoints_2d, predict_2d, K)
+                self.calculate_metric_RANSAC(keypoints_2d, predict_2d, K, pose, pred_contour)
+
+            proj_2d_mean = np.mean(self.proj_2d)
+            add_mean = np.mean(self.add)
+            x = np.mean(self.x_error_all)
+            y = np.mean(self.y_error_all)
+            z = np.mean(self.z_error_all)
+            alpha = np.mean(self.alpha_error_all)
+            beta = np.mean(self.beta_error_all)
+            gamma = np.mean(self.gama_error_all)
+            print("model class type:{}:2D- {}  ADD-{}".format(self.args.obj, proj_2d_mean, add_mean))
+            print('x error:{} mm, y error:{} mm, z error:{} mm'.format(x, y, z))
+            print("translation error:{} mm".format((x ** 2 + y ** 2 + z ** 2) ** 0.5))
+            print('alpha error:{} °, beta error:{} °, gamaa error:{} °'.format(alpha, beta, gamma))
+            print("rotation error:{} mm".format((alpha ** 2 + beta ** 2 + gamma ** 2) ** 0.5))
+
 
     def map_2_points(self, heatmap, pred_heatmap):
 
@@ -222,6 +227,21 @@ class evaluator:
             self.add_metric(pred_pose, gt_pose)
             self.calculate_tra_and_rot(gt_pose, pred_pose)
 
+    def calculate_metric_RANSAC(self, keypoints2d, predict2d, K, pose, pred_contour):
+
+        batch_size = keypoints2d.shape[0]
+        keypoints_num = keypoints2d.shape[1]
+
+        for i in range(batch_size):
+            predict = predict2d[i].detach().cpu().numpy().reshape(keypoints_num, -1)
+            # self.set_error_points(predict)
+            k = K[i].detach().cpu().numpy()
+            gt_pose = pose[i].detach().cpu().numpy()
+            pred_pose = self.pnp(self.keypoints, predict, k)
+            self.projection_2d(pred_pose, gt_pose, k)
+            self.add_metric(pred_pose, gt_pose)
+            self.calculate_tra_and_rot(gt_pose, pred_pose)
+
     def PECP(self, points_3d, points_2d, K, target_contour, list_all):
         match_dict = {}
         for i in range(points_3d.shape[0]):
@@ -235,7 +255,7 @@ class evaluator:
         list_score = np.zeros(points_2d.shape[0])
 
         # Number of iterations obtained by calculation
-        iteration_time = 400
+        iteration_time = self.iterations
 
         for i in range(iteration_time):
             temp_list = choice(list_all)
@@ -244,8 +264,8 @@ class evaluator:
             for j in range(temp_list.__len__()):
                 keypoints_2d[j] = match_dict[temp_list[j]][:2]
                 keypoints_3d[j] = match_dict[temp_list[j]][2:]
-            _, R_exp, t = cv2.solvePnP(keypoints_3d, keypoints_2d, K, distCoeffs=np.zeros(shape=[5, 1], dtype="float64"),
-                                       flags=cv2.SOLVEPNP_EPNP)
+
+            _, R_exp, t = cv2.solvePnP(keypoints_3d, keypoints_2d, K, distCoeffs=np.zeros(shape=[5, 1], dtype="float64"), flags=cv2.SOLVEPNP_EPNP)
             R, _ = cv2.Rodrigues(R_exp)
             pose = np.concatenate([R, t], axis=-1)
             # 2d points

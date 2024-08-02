@@ -8,11 +8,12 @@ from PIL import Image
 from torch.utils.data import Dataset
 
 class CustomDataset(Dataset):
-    def __init__(self, root, obj_cls, is_train=True):
+    def __init__(self, root, obj_cls, is_train=True, blender_contour=False):
         super(CustomDataset, self).__init__()
         self.root=root
         self.obj_cls=obj_cls
         self.is_train=is_train
+        self.blender_contour = blender_contour
 
         self.element = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
 
@@ -20,7 +21,14 @@ class CustomDataset(Dataset):
         keypoint_path = os.path.join(os.getcwd(), "data", "model", self.obj_cls, "{}_keypoints.txt".format(self.obj_cls))
         self.keypoints = np.loadtxt(keypoint_path)
         #Sample 8 keypoints
-        self.keypoints = self.keypoints[:8, :]
+        if (self.keypoints.shape[0] > 8):
+            self.keypoints = self.keypoints[:8, :]
+
+        self.valid_3d = np.loadtxt(os.path.join(os.getcwd(), "data", "model", self.obj_cls, "{}_3D_contour.txt".format(self.obj_cls)))
+
+        #Load pointcloud points
+        pc_path = os.path.join(os.getcwd(), "data", "model", self.obj_cls, "{}_points.txt".format(self.obj_cls))
+        self.points = np.loadtxt(pc_path)
 
         # Load objects.csv as a dictonary, find id for obj_cls
         with open(os.path.join(os.getcwd(), 'data','model','objects.csv')) as obj_labels:
@@ -108,22 +116,52 @@ class CustomDataset(Dataset):
             metadata = self.scene3_metadata
         spec_image_metadata = metadata[rgb_frame[1]]
         obj_id_index = list(spec_image_metadata['cls_indexes'][0][0]).index(self.obj_id)
-        pose = torch.tensor(spec_image_metadata['poses'][0][0], dtype=torch.float32)[:,:,obj_id_index]
-        K = torch.tensor(spec_image_metadata['intrinsic_matrix'][0][0], dtype=torch.float32)
+        pose = np.asarray(spec_image_metadata['poses'][0][0])[:,:,obj_id_index]#torch.tensor(spec_image_metadata['poses'][0][0], dtype=torch.float32)[:,:,obj_id_index]
+        K = np.asarray(spec_image_metadata['intrinsic_matrix'][0][0])#torch.tensor(spec_image_metadata['intrinsic_matrix'][0][0], dtype=torch.float32)
 
         img = np.array(Image.open(os.path.join(path, "data", "rgb", "{}.png".format(rgb_frame[1]))))
-        contour = np.array(Image.open(os.path.join(path, "renders", self.obj_cls, "{}.png".format(contour_frame[1]))))
-        contour = cv2.dilate(contour, kernel=self.element)
         img = torch.tensor(img, dtype = torch.float32).permute((2, 0, 1))
-        contour = torch.tensor(contour, dtype = torch.float32).permute((2, 0, 1))
         img = img / 255
-        contour = contour / 255
 
+        if not self.blender_contour:
+            full_model = np.zeros((480,640))
+            points_2d = self.project(self.points, K, pose)
+            
+            for point in range(len(points_2d)):
+                x = int(points_2d[point][0])
+                y = int(points_2d[point][1])
+                if (x >= 640) or (x <= 0) or (y >= 480) or (y <= 0):
+                    continue
+                full_model[y][x] = 1
+
+            canny = cv2.Canny(np.uint8(full_model), 0, 1)
+
+            projection = np.zeros((480,640))
+            contour_points_2d = self.project(self.valid_3d, K, pose)
+            for point in range(len(self.valid_3d)):
+                x = int(contour_points_2d[point][0])
+                y = int(contour_points_2d[point][1])
+                if (x >= 640) or (x <= 0) or (y >= 480) or (y <= 0):
+                    continue
+                projection[y][x] = 255
+
+            combined = torch.tensor(cv2.dilate(canny + np.squeeze(projection), kernel=self.element), dtype=torch.float32)
+            contour = torch.stack([combined.cpu(), combined.cpu(), combined.cpu()])
+            contour /= 255
+            contour = (contour > 0).float()
+        else:
+            contour = np.array(Image.open(os.path.join(path, "renders", self.obj_cls, "{}.png".format(contour_frame[1]))))
+            contour = cv2.dilate(contour, kernel=self.element)
+            contour = torch.tensor(contour, dtype = torch.float32).permute((2, 0, 1))
+            contour = contour / 255
 
         #Generate heatmap
-        keypoints_2d = self.project(self.keypoints, K.numpy(), pose.numpy())
+        keypoints_2d = self.project(self.keypoints, K, pose)
         heatmap = self.generate_heatmap(keypoints_2d)
 
+
+        pose = torch.tensor(pose, dtype=torch.float32)
+        K = torch.tensor(K, dtype=torch.float32)
         frame = torch.tensor([int(rgb_frame[0][-1]), int(rgb_frame[1])], dtype=torch.int32)
         
         return img, contour, heatmap, pose, K, frame
