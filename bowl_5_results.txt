@@ -1,0 +1,48 @@
+PECP Evaluation for bowl_5:
+	(Using ground truth contour and heatmaps and pose)
+	
+model class type:bowl_5:2D- 0.8760842627013631  ADD-0.8760842627013631
+x error:0.9057350628034375 mm, y error:0.9119192092605249 mm, z error:2.5183312480141864 mm
+translation error:2.8273565256144435 mm
+alpha error:0.3457386349237879 °, beta error:0.24364178634383762 °, gamaa error:0.2558388866522276 °
+rotation error:0.49431777193950033 mm
+
+	(Using post rendered contour out of 3d contour points and canny image)
+
+model class type:bowl_5:2D- 0.9987608426270136  ADD-0.9987608426270136
+x error:0.8369975854721871 mm, y error:0.8344551076920417 mm, z error:1.710874230294204 mm
+translation error:2.0794160037674985 mm
+alpha error:0.20340149469802374 °, beta error:0.12537955752112445 °, gamaa error:0.16618584821829122 °
+rotation error:0.2910497167798245 mm
+
+	(Trained for 250 epochs on a40)
+
+model class type:bowl_5:2D- 0.8810408921933085  ADD-0.8376703841387856
+x error:1.2191724378061803 mm, y error:1.3068976977509659 mm, z error:5.6644999048225255 mm
+translation error:5.939774591449362 mm
+alpha error:0.6952557953116609 °, beta error:0.5176151614424188 °, gamaa error:0.6041445112236288 °
+rotation error:1.0565494151771362 mm
+
+	(Only scene 3)
+model class type:bowl_5:2D- 0.9627586206896551  ADD-0.9186206896551724
+x error:1.1677064071039933 mm, y error:1.2588472025707689 mm, z error:5.731158912326738 mm
+translation error:5.982843555614184 mm
+alpha error:0.6297823265633394 °, beta error:0.4640509677482425 °, gamaa error:0.5376550740111682 °
+rotation error:0.9492323520242911 mm
+
+
+	(Using just PnP RANSAC)
+
+model class type:bowl_5:2D- 0.9120198265179678  ADD-0.909541511771995
+x error:1.0769662646591438 mm, y error:1.1431894930705508 mm, z error:4.633942653155591 mm
+translation error:4.89286859265763 mm
+alpha error:0.4906959998630957 °, beta error:0.35305056087855924 °, gamaa error:0.4244497093993822 °
+rotation error:0.7386371359656435 mm
+
+	(Trained on dense contour points)
+
+model class type:bowl_5:2D- 0.9628252788104089  ADD-0.9677819083023544
+x error:1.3546727018211178 mm, y error:0.9939060792478981 mm, z error:4.668420027947997 mm
+translation error:4.961565577594559 mm
+alpha error:0.5968300817646459 °, beta error:0.4410193439114177 °, gamaa error:0.568971106110582 °
+rotation error:0.9351108639043556 mm

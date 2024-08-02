@@ -1,0 +1,48 @@
+PECP Evaluation for bottle_1:
+	(Using ground truth contour and heatmaps and pose)
+
+model class type:bottle_1:2D- 0.8215613382899628  ADD-0.8240396530359355
+x error:1.2214338633505109 mm, y error:1.1633851308774326 mm, z error:4.438882872210933 mm
+translation error:4.748583662366458 mm
+alpha error:1.3491908776568073 °, beta error:1.044334961318112 °, gamaa error:1.3843666580687297 °
+rotation error:2.1971396359257716 mm
+
+	(Using post rendered contour out of 3d contour points and canny image)
+
+model class type:bottle_1:2D- 0.9950433705080545  ADD-0.9938042131350682
+x error:1.0387365188161162 mm, y error:0.9790958797416381 mm, z error:3.2943614683580402 mm
+translation error:3.5903230748014057 mm
+alpha error:0.4835661364793211 °, beta error:0.3036422951937146 °, gamaa error:0.45618989429979767 °
+rotation error:0.7308516069909847 mm
+
+	(Trained for 250 Epochs on ampere a40)
+
+model class type:bottle_1:2D- 0.8376703841387856  ADD-0.59727385377943
+x error:1.5898644502525858 mm, y error:1.1071195936952463 mm, z error:4.862174390932132 mm
+translation error:5.233939488832207 mm
+alpha error:1.3173012952627785 °, beta error:0.8711978331657005 °, gamaa error:1.2419534596199118 °
+rotation error:2.0091582224592153 mm
+
+	(only from scene 3)
+
+model class type:bottle_1:2D- 0.8551724137931035  ADD-0.6262068965517241
+x error:1.5440250027227294 mm, y error:1.0436794201069286 mm, z error:4.7601389941659855 mm
+translation error:5.111966665068075 mm
+alpha error:1.264630929562894 °, beta error:0.7601448326788499 °, gamaa error:1.1969532076956746 °
+rotation error:1.8999496140867607 mm
+
+	(Using only pnp RANSAC)
+
+model class type:bottle_1:2D- 0.9653035935563816  ADD-0.7682775712515489
+x error:1.5256394733229972 mm, y error:1.0832564461751708 mm, z error:4.369750761978609 mm
+translation error:4.753497875517982 mm
+alpha error:1.0355658589635048 °, beta error:0.6229967126123486 °, gamaa error:0.9525248504831576 °
+rotation error:1.5387739089822703 mm
+
+	(Trained on dense contour points)
+
+model class type:bottle_1:2D- 0.9603469640644362  ADD-0.7125154894671624
+x error:1.5377766800481305 mm, y error:1.1052433668154686 mm, z error:4.892424517349445 mm
+translation error:5.246154560776055 mm
+alpha error:1.1511467185230257 °, beta error:0.7479898536518137 °, gamaa error:1.084671936173808 °
+rotation error:1.7496116134318007 mm
