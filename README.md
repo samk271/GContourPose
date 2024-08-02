@@ -30,7 +30,7 @@ pip3 install numpy matplotlib scipy pillow opencv-python open3d
     - `./data/models/obj/` must include `obj_3D_contour.txt`, `obj_keypoints.txt`, `obj_points.txt`, and `obj.ply`. If they do not exist they can be generated using helper functions in keypoints.py
     - `./data/set2/set2/sceneX/data` must include a `rgb` folder with the rgb inputs to train and eval with
     - `./data/set2/set2/sceneX/renders` must include the blender generated renders if you wish to train with them.
-    - They can be downloaded, along with their corresponding RGB images from the following link: [https://drive.google.com/drive/folders/1EOKjj5hI6491zsNJej0w0LQVKVobYiC_?usp=sharing](https://mega.nz/folder/6coX3IrB#YnjWdBtWh6LX-cOiT8w27w)
+    - They can be downloaded, along with their corresponding RGB images from the following link: (https://mega.nz/folder/6coX3IrB#YnjWdBtWh6LX-cOiT8w27w)
     - The renders have an unconventional naming structure:
         - For scene 1: in `./renders/x.png` corresponds to `./data/rgb/((x*10)-1).png`
         - For scene 3: in `./renders/x.png` corresponds to `./data/rgb/(x-1).png`
