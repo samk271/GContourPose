@@ -1,7 +1,7 @@
 # GContourPose
 ### Extension of ContourPose trained on ClearPose dataset of glass objects.
 
-![final paper]('/IREP - Sam Klemic Final Paper.pdf' "Final Paper")
+[Click Here for Final Paper](https://github.com/samk271/GContourPose/blob/main/IREP%20-%20Sam%20Klemic%20Final%20Paper.pdf)
 
 Run the following to install all necessary packages
 ```
