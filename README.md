@@ -1,6 +1,8 @@
 # GContourPose
 ### Extension of ContourPose trained on ClearPose dataset of glass objects.
 
+![final paper]('/IREP - Sam Klemic Final Paper.pdf' "Final Paper")
+
 Run the following to install all necessary packages
 ```
 pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
