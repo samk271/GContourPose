@@ -43,6 +43,6 @@ pip3 install numpy matplotlib scipy pillow opencv-python open3d
     - `corresponding_keypoint_mapper()` does the dense contour point sampling. It uses `count_contour_points()` and saves the array to a file. if the file already exists it reads from it. It then takes every point which fell on an edge over 100 times and stores it in `./data/model/obj/obj_3D_contour.txt`. It also visualizes the resulting dense points, so you can manually verify if the threshold was accurate.
     - `find_diameter` finds the furthest point between any two keypoints for param obj. 
 
-#### Docker stuff
-For running on a server or containerizing the code, there is a `Dockerfile` and `gcon_pose.sh` as a shell script. Please note that open3d does not work in the container for some reason so evaluation or keypoint stuff has to be done locally.
+#### Docker
+For running on a server or containerizing the code, there is a `Dockerfile` and `gcon_pose.sh` as a shell script.
 
